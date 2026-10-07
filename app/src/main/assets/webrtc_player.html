@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <style>
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
+    #wrap { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+    video {
+      width: 100%; height: 100%; object-fit: cover; background: #000;
+      transform-origin: center center;
+    }
+    #status {
+      position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;
+      padding: 8px 12px; color: #fff; font: 12px/1.3 sans-serif;
+      background: rgba(0,0,0,0.6);
+    }
+  </style>
+</head>
+<body>
+  <div id="wrap">
+    <video id="v" autoplay playsinline muted></video>
+  </div>
+  <div id="status">Starting…</div>
+  <script>
+    // CONFIG_INJECT
+    const CFG = window.MOONRAKER_CAM || {};
+    const signalingUrl = CFG.url || '';
+    const apiKey = CFG.key || '';
+    const service = String(CFG.service || 'webrtc-camerastreamer').toLowerCase();
+    const flipH = !!CFG.flipH;
+    const flipV = !!CFG.flipV;
+    const rotation = Number(CFG.rotation || 0);
+
+    const video = document.getElementById('v');
+    const statusEl = document.getElementById('status');
+    let sx = flipH ? -1 : 1;
+    let sy = flipV ? -1 : 1;
+    video.style.transform = 'scale(' + sx + ',' + sy + ') rotate(' + rotation + 'deg)';
+
+    const defaultIceServers = [{ urls: ['stun:stun.l.google.com:19302'] }];
+
+    function setStatus(msg) {
+      statusEl.style.display = 'block';
+      statusEl.textContent = msg || '';
+      if (!msg) statusEl.style.display = 'none';
+    }
+
+    function notifyPlaying() {
+      if (window.AndroidBridge && window.AndroidBridge.onPlaying) {
+        window.AndroidBridge.onPlaying();
+      }
+    }
+
+    function notifyError(msg) {
+      setStatus(msg);
+      if (window.AndroidBridge && window.AndroidBridge.onError) {
+        window.AndroidBridge.onError(String(msg || 'WebRTC error'));
+      }
+    }
+
+    function headers(json) {
+      const h = {};
+      if (json) h['Content-Type'] = 'application/json';
+      if (apiKey) h['X-Api-Key'] = apiKey;
+      return h;
+    }
+
+    async function postJson(body) {
+      const res = await fetch(signalingUrl, {
+        method: 'POST',
+        headers: headers(true),
+        body: JSON.stringify(body)
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error('HTTP ' + res.status + (text ? (': ' + text.slice(0, 120)) : ''));
+      }
+      const ct = res.headers.get('Content-Type') || '';
+      if (ct.indexOf('application/json') >= 0) return res.json();
+      return null;
+    }
+
+    // Fluidd / camera-streamer: server sends offer via "request"; client answers.
+    async function startCameraStreamer() {
+      setStatus('Connecting WebRTC…');
+
+      let remoteId = null;
+      const init = await postJson({
+        type: 'request',
+        iceServers: defaultIceServers,
+        keepAlive: true
+      });
+      if (!init || !init.sdp) throw new Error('Empty WebRTC offer from camera');
+      if (typeof init.id === 'string') remoteId = init.id;
+
+      const config = { sdpSemantics: 'unified-plan' };
+      if (Array.isArray(init.iceServers) && init.iceServers.length) {
+        config.iceServers = init.iceServers;
+      }
+      const pc = new RTCPeerConnection(config);
+
+      pc.addTransceiver('video', { direction: 'recvonly' });
+      pc.ontrack = (ev) => {
+        if (ev.track && ev.track.kind === 'video') {
+          video.srcObject = (ev.streams && ev.streams[0])
+            ? ev.streams[0]
+            : new MediaStream([ev.track]);
+          video.play().catch(() => {});
+          setStatus('');
+          notifyPlaying();
+        }
+      };
+      pc.ondatachannel = (ev) => {
+        const dc = ev.channel;
+        if (dc.label === 'keepalive') {
+          dc.onmessage = () => { try { dc.send('pong'); } catch (e) {} };
+        }
+      };
+      pc.oniceconnectionstatechange = () => {
+        if (pc.iceConnectionState === 'failed') {
+          notifyError('WebRTC ICE failed');
+        } else if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+          setStatus('');
+          notifyPlaying();
+        } else {
+          setStatus('ICE: ' + pc.iceConnectionState);
+        }
+      };
+
+      if (config.iceServers) {
+        pc.onicecandidate = async (ev) => {
+          if (!ev.candidate || !remoteId) return;
+          try {
+            await postJson({
+              type: 'remote_candidate',
+              id: remoteId,
+              candidates: [ev.candidate]
+            });
+          } catch (e) { /* ignore trickle errors */ }
+        };
+      }
+
+      await pc.setRemoteDescription(init);
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      await postJson({
+        type: answer.type,
+        id: remoteId,
+        sdp: answer.sdp
+      });
+    }
+
+    async function startGo2rtc() {
+      setStatus('Connecting go2rtc…');
+      const pc = new RTCPeerConnection({
+        sdpSemantics: 'unified-plan',
+        iceServers: defaultIceServers,
+        bundlePolicy: 'max-bundle'
+      });
+      pc.addTransceiver('video', { direction: 'recvonly' });
+      pc.addTransceiver('audio', { direction: 'recvonly' });
+      pc.ontrack = (ev) => {
+        video.srcObject = (ev.streams && ev.streams[0]) ? ev.streams[0] : new MediaStream([ev.track]);
+        video.play().catch(() => {});
+        setStatus('');
+        notifyPlaying();
+      };
+      const wsUrl = signalingUrl.replace(/^http/, 'ws');
+      const ws = new WebSocket(wsUrl);
+      ws.onopen = async () => {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        ws.send(JSON.stringify({ type: 'webrtc/offer', value: offer.sdp }));
+      };
+      ws.onmessage = async (ev) => {
+        const msg = JSON.parse(ev.data);
+        if (msg.type === 'webrtc/answer' || msg.type === 'answer') {
+          await pc.setRemoteDescription({ type: 'answer', sdp: msg.value || msg.sdp });
+        } else if (msg.type === 'webrtc/candidate' || msg.type === 'candidate') {
+          try {
+            await pc.addIceCandidate({ candidate: msg.value || msg.candidate, sdpMid: '0' });
+          } catch (e) {}
+        } else if (msg.type === 'error') {
+          notifyError(msg.value || 'go2rtc error');
+        }
+      };
+      pc.onicecandidate = (ev) => {
+        if (ev.candidate && ws.readyState === 1) {
+          ws.send(JSON.stringify({
+            type: 'webrtc/candidate',
+            value: ev.candidate.toJSON().candidate
+          }));
+        }
+      };
+      ws.onerror = () => notifyError('go2rtc WebSocket failed');
+    }
+
+    (async () => {
+      try {
+        if (!signalingUrl) throw new Error('Missing stream URL (config inject failed)');
+        if (service.indexOf('go2rtc') >= 0) await startGo2rtc();
+        else await startCameraStreamer();
+      } catch (e) {
+        notifyError((e && e.message) ? e.message : String(e));
+      }
+    })();
+  </script>
+</body>
+</html>

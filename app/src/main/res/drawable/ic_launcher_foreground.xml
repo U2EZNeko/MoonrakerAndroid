@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Adaptive-icon safe zone (~66%) for the Moonraker mark. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:scaleX="0.62"
+        android:scaleY="0.62">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M45.58,31.50a8.42,8.42 0 1 1 16.84,0a8.42,8.42 0 1 1 -16.84,0" />
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M28.12,41.62 L28.12,43.88 L28.12,46.12 L28.12,48.38 L28.12,50.62 L28.12,52.88 L28.12,55.12 L28.12,57.38 L28.12,59.62 L28.12,61.88 L28.12,64.12 L28.12,66.38 L28.12,68.62 L28.12,70.88 L34.88,73.12 L43.88,75.38 L48.38,77.62 L50.62,79.88 L57.38,79.88 L59.62,77.62 L64.12,75.38 L73.12,73.12 L79.88,70.88 L79.88,68.62 L79.88,66.38 L79.88,64.12 L79.88,61.88 L79.88,59.62 L79.88,57.38 L79.88,55.12 L79.88,52.88 L79.88,50.62 L79.88,48.38 L79.88,46.12 L79.88,43.88 L79.88,41.62 L59.62,48.38 L61.88,46.12 L66.38,43.88 L75.38,41.62 L32.62,41.62 L41.62,43.88 L46.12,46.12 L48.38,48.38 Z" />
+    </group>
+</vector>

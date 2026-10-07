@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Moonraker</string>
+    <string name="nav_cameras">Cameras</string>
+    <string name="nav_temps">Temps</string>
+    <string name="nav_print">Print</string>
+    <string name="nav_settings">Settings</string>
+    <string name="camera_widget_label">Camera snapshot</string>
+    <string name="camera_widget_description">Shows a printer camera snapshot. Tap to refresh.</string>
+    <string name="widget_tap_refresh">Tap to refresh</string>
+    <string name="widget_configure_title">Configure camera widget</string>
+    <string name="no_printer">Add a printer in Settings</string>
+    <string name="no_cameras">No cameras configured on this printer</string>
+</resources>
