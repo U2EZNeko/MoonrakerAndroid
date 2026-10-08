@@ -76,9 +76,32 @@ object AppTabs {
     const val TEMPS = "temps"
     const val PRINT = "print"
     const val TIMELAPSE = "timelapse"
+    const val GCODE = "gcode"
+    const val FANS = "fans"
+    const val CONSOLE = "console"
+    const val FIRMWARE = "firmware"
     const val SETTINGS = "settings"
+    /** Overflow tab — always pinned on the bottom bar; not hideable. */
+    const val MORE = "more"
 
-    val defaultOrder: List<String> = listOf(
+    /** Feature tabs that can appear in the bottom bar or be tucked into More. */
+    val featureTabs: List<String> = listOf(
+        DASHBOARD,
+        CAMERAS,
+        TEMPS,
+        PRINT,
+        TIMELAPSE,
+        GCODE,
+        FANS,
+        CONSOLE,
+        FIRMWARE,
+        SETTINGS,
+    )
+
+    val defaultOrder: List<String> = featureTabs
+
+    /** Tabs shown on the bottom bar by default (More is appended separately). */
+    val defaultBottomTabs: List<String> = listOf(
         DASHBOARD,
         CAMERAS,
         TEMPS,
@@ -88,15 +111,34 @@ object AppTabs {
     )
 
     fun normalize(order: List<String>): List<String> {
-        val known = defaultOrder.toSet()
+        val known = featureTabs.toSet()
         val cleaned = order.filter { it in known }.distinct()
-        val missing = defaultOrder.filterNot { it in cleaned }
-        // Surface Dashboard for upgrades that never had it saved.
+        val missing = featureTabs.filterNot { it in cleaned }
         return if (DASHBOARD in missing && cleaned.isNotEmpty()) {
             listOf(DASHBOARD) + cleaned + missing.filter { it != DASHBOARD }
         } else {
             cleaned + missing
         }
+    }
+
+    fun normalizeBottomTabs(visible: List<String>): List<String> {
+        val known = featureTabs.toSet()
+        return visible.filter { it in known && it != MORE }.distinct()
+    }
+
+    fun label(route: String): String = when (route) {
+        DASHBOARD -> "Home"
+        CAMERAS -> "Cameras"
+        TEMPS -> "Temps"
+        PRINT -> "Print"
+        TIMELAPSE -> "Timelapse"
+        GCODE -> "G-code"
+        FANS -> "Fans"
+        CONSOLE -> "Console"
+        FIRMWARE -> "Firmware"
+        SETTINGS -> "Settings"
+        MORE -> "More"
+        else -> route
     }
 }
 
@@ -142,6 +184,8 @@ data class AppSettings(
     val useDynamicColor: Boolean = false,
     val widgetBindings: List<WidgetBinding> = emptyList(),
     val tabOrder: List<String> = AppTabs.defaultOrder,
+    /** Feature tabs shown on the bottom bar (More is always appended). */
+    val bottomTabs: List<String> = AppTabs.defaultBottomTabs,
     /** Enabled dashboard widgets in display order. */
     val dashboardWidgets: List<String> = DashboardWidgets.defaultOrder,
     /** Optional webcam uid/name for the dashboard camera card (blank = first camera). */

@@ -79,6 +79,37 @@ data class HeaterReading(
     val power: Float = 0f,
 )
 
+data class FanReading(
+    val objectName: String,
+    val displayName: String,
+    val speed: Float,
+    val rpm: Float? = null,
+    val controllable: Boolean,
+    val kind: FanKind,
+)
+
+enum class FanKind {
+    PART_COOLING,
+    GENERIC,
+    CONTROLLER,
+    HEATER,
+    TEMPERATURE,
+}
+
+data class ConsoleLine(
+    val id: Long,
+    val text: String,
+    val kind: ConsoleLineKind,
+    val timestampMs: Long = System.currentTimeMillis(),
+)
+
+enum class ConsoleLineKind {
+    COMMAND,
+    RESPONSE,
+    ERROR,
+    INFO,
+}
+
 data class PrintStatus(
     val filename: String = "",
     val state: String = "standby",
@@ -161,4 +192,68 @@ data class TimelapseItem(
     val modifiedEpochSec: Double,
     val downloadPath: String,
     val coverPath: String?,
+)
+
+@Serializable
+data class GcodeFileListEnvelope(
+    val result: List<GcodeFileEntry> = emptyList(),
+)
+
+@Serializable
+data class GcodeFileEntry(
+    val path: String = "",
+    val modified: Double = 0.0,
+    val size: Long = 0,
+    val permissions: String = "",
+)
+
+@Serializable
+data class GcodeMetadataEnvelope(
+    val result: GcodeMetadata,
+)
+
+@Serializable
+data class GcodeMetadata(
+    val filename: String = "",
+    val size: Long = 0,
+    val modified: Double = 0.0,
+    @SerialName("estimated_time") val estimatedTimeSec: Float? = null,
+    @SerialName("object_height") val objectHeight: Float? = null,
+    @SerialName("first_layer_height") val firstLayerHeight: Float? = null,
+    @SerialName("layer_height") val layerHeight: Float? = null,
+    @SerialName("layer_count") val layerCount: Int? = null,
+    @SerialName("filament_total") val filamentTotalMm: Float? = null,
+    @SerialName("filament_weight_total") val filamentWeightG: Float? = null,
+    val slicer: String? = null,
+    @SerialName("slicer_version") val slicerVersion: String? = null,
+    @SerialName("gcode_start_byte") val gcodeStartByte: Long? = null,
+    @SerialName("gcode_end_byte") val gcodeEndByte: Long? = null,
+    val thumbnails: List<GcodeThumbnail> = emptyList(),
+)
+
+@Serializable
+data class GcodeThumbnail(
+    val width: Int = 0,
+    val height: Int = 0,
+    val size: Int = 0,
+    @SerialName("relative_path") val relativePath: String = "",
+)
+
+data class GcodePathPreview(
+    val segments: List<GcodePathSegment> = emptyList(),
+    val minX: Float = 0f,
+    val maxX: Float = 0f,
+    val minY: Float = 0f,
+    val maxY: Float = 0f,
+) {
+    val width: Float get() = (maxX - minX).coerceAtLeast(1f)
+    val height: Float get() = (maxY - minY).coerceAtLeast(1f)
+}
+
+data class GcodePathSegment(
+    val x0: Float,
+    val y0: Float,
+    val x1: Float,
+    val y1: Float,
+    val extruding: Boolean,
 )

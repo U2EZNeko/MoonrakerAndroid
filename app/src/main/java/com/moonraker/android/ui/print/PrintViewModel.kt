@@ -105,6 +105,21 @@ class PrintViewModel(
         }
     }
 
+    fun emergencyStop() {
+        val printer = uiState.value.activePrinter ?: return
+        viewModelScope.launch {
+            moonrakerRepository.emergencyStop(printer)
+                .onSuccess {
+                    message.value = "Emergency stop sent"
+                    isError.value = false
+                }
+                .onFailure {
+                    message.value = it.message ?: "E-stop failed"
+                    isError.value = true
+                }
+        }
+    }
+
     fun uploadAndStart(context: Context, uri: Uri) {
         val printer = uiState.value.activePrinter ?: return
         viewModelScope.launch {

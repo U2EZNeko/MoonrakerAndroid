@@ -249,10 +249,190 @@ class MoonrakerApiClient(
             }
         }
 
+    suspend fun listGcodeFiles(printer: PrinterConfig): Result<List<GcodeFileEntry>> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val request = Request.Builder()
+                    .url("${printer.baseUrl}/server/files/list?root=gcodes")
+                    .withApiKey(printer)
+                    .get()
+                    .build()
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) error("HTTP ${response.code}")
+                    val body = response.body?.string().orEmpty()
+                    json.decodeFromString<GcodeFileListEnvelope>(body).result
+                        .filter { entry ->
+                            val name = entry.path.substringAfterLast('/')
+                            name.contains('.') &&
+                                !name.startsWith('.') &&
+                                name.substringAfterLast('.').lowercase() in gcodeExtensions
+                        }
+                        .sortedByDescending { it.modified }
+                }
+            }
+        }
+
+    suspend fun gcodeMetadata(printer: PrinterConfig, filename: String): Result<GcodeMetadata> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val encoded = java.net.URLEncoder.encode(filename, Charsets.UTF_8.name())
+                    .replace("+", "%20")
+                val request = Request.Builder()
+                    .url("${printer.baseUrl}/server/files/metadata?filename=$encoded")
+                    .withApiKey(printer)
+                    .get()
+                    .build()
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) error("HTTP ${response.code}")
+                    val body = response.body?.string().orEmpty()
+                    json.decodeFromString<GcodeMetadataEnvelope>(body).result
+                }
+            }
+        }
+
+    suspend fun downloadGcodePreview(
+        printer: PrinterConfig,
+        filename: String,
+        maxBytes: Long = 2_000_000L,
+        maxSegments: Int = 25_000,
+    ): Result<GcodePathPreview> = withContext(Dispatchers.IO) {
+        runCatching {
+            val request = Request.Builder()
+                .url(fileDownloadUrl(printer, "gcodes/$filename"))
+                .withApiKey(printer)
+                .header("Range", "bytes=0-${maxBytes - 1}")
+                .get()
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful && response.code != 206) {
+                    error("Download failed: HTTP ${response.code}")
+                }
+                val stream = response.body?.byteStream() ?: error("Empty body")
+                parseGcodePath(stream, maxSegments)
+            }
+        }
+    }
+
     fun fileDownloadUrl(printer: PrinterConfig, relativePath: String): String {
         val trimmed = relativePath.trimStart('/')
         return "${printer.baseUrl}/server/files/$trimmed"
     }
+
+    fun thumbnailUrl(printer: PrinterConfig, gcodePath: String, relativeThumb: String): String {
+        val parent = gcodePath.substringBeforeLast('/', missingDelimiterValue = "")
+        val joined = if (parent.isBlank()) relativeThumb else "$parent/$relativeThumb"
+        return fileDownloadUrl(printer, "gcodes/$joined")
+    }
+
+    fun firmwareConfigUrl(printer: PrinterConfig): String =
+        "${printer.mediaBaseUrl.trimEnd('/')}/firmware-config/"
+}
+
+private val gcodeExtensions = setOf("gcode", "gco", "g", "nc")
+
+private fun parseGcodePath(stream: java.io.InputStream, maxSegments: Int): GcodePathPreview {
+    val segments = ArrayList<GcodePathSegment>(minOf(maxSegments, 4096))
+    var x = 0f
+    var y = 0f
+    var e = 0f
+    var absolute = true
+    var absoluteE = true
+    var minX = Float.POSITIVE_INFINITY
+    var maxX = Float.NEGATIVE_INFINITY
+    var minY = Float.POSITIVE_INFINITY
+    var maxY = Float.NEGATIVE_INFINITY
+    var hasPoint = false
+
+    stream.bufferedReader().useLines { lines ->
+        for (raw in lines) {
+            if (segments.size >= maxSegments) break
+            val line = raw.substringBefore(';').trim()
+            if (line.isEmpty()) continue
+            val upper = line.uppercase()
+            when {
+                upper.startsWith("G90") -> absolute = true
+                upper.startsWith("G91") -> absolute = false
+                upper.startsWith("M82") -> absoluteE = true
+                upper.startsWith("M83") -> absoluteE = false
+                upper.startsWith("G92") -> {
+                    parseAxis(upper, 'E')?.let { e = it }
+                    parseAxis(upper, 'X')?.let { x = it }
+                    parseAxis(upper, 'Y')?.let { y = it }
+                }
+                upper.startsWith("G0") || upper.startsWith("G1") ||
+                    upper.startsWith("G00") || upper.startsWith("G01") -> {
+                    val nx = parseAxis(upper, 'X')
+                    val ny = parseAxis(upper, 'Y')
+                    val ne = parseAxis(upper, 'E')
+                    if (nx == null && ny == null) {
+                        if (ne != null) e = if (absoluteE) ne else e + ne
+                        continue
+                    }
+                    val x1 = when {
+                        nx == null -> x
+                        absolute -> nx
+                        else -> x + nx
+                    }
+                    val y1 = when {
+                        ny == null -> y
+                        absolute -> ny
+                        else -> y + ny
+                    }
+                    val e1 = when {
+                        ne == null -> e
+                        absoluteE -> ne
+                        else -> e + ne
+                    }
+                    val extruding = e1 > e + 1e-4f
+                    if (x1 != x || y1 != y) {
+                        segments += GcodePathSegment(x, y, x1, y1, extruding)
+                        if (!hasPoint) {
+                            minX = minOf(x, x1)
+                            maxX = maxOf(x, x1)
+                            minY = minOf(y, y1)
+                            maxY = maxOf(y, y1)
+                            hasPoint = true
+                        } else {
+                            minX = minOf(minX, x, x1)
+                            maxX = maxOf(maxX, x, x1)
+                            minY = minOf(minY, y, y1)
+                            maxY = maxOf(maxY, y, y1)
+                        }
+                    }
+                    x = x1
+                    y = y1
+                    e = e1
+                }
+            }
+        }
+    }
+
+    if (!hasPoint) {
+        return GcodePathPreview()
+    }
+    return GcodePathPreview(
+        segments = segments,
+        minX = minX,
+        maxX = maxX,
+        minY = minY,
+        maxY = maxY,
+    )
+}
+
+private fun parseAxis(line: String, axis: Char): Float? {
+    val idx = line.indexOf(axis)
+    if (idx < 0) return null
+    var end = idx + 1
+    while (end < line.length) {
+        val c = line[end]
+        if (c == '-' || c == '+' || c == '.' || c.isDigit()) {
+            end++
+        } else {
+            break
+        }
+    }
+    if (end == idx + 1) return null
+    return line.substring(idx + 1, end).toFloatOrNull()
 }
 
 private fun groupTimelapseFiles(files: List<RemoteFileEntry>): List<TimelapseItem> {

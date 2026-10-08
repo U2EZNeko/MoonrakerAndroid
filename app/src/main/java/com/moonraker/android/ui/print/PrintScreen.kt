@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
@@ -22,7 +21,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -39,6 +37,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.moonraker.android.data.moonraker.PrintStatus
 import com.moonraker.android.ui.common.AppBarTitle
+import com.moonraker.android.ui.common.ConfirmCancelPrintDialog
+import com.moonraker.android.ui.common.ConfirmEmergencyStopDialog
 import com.moonraker.android.ui.common.EmptyState
 import com.moonraker.android.ui.common.PrinterSwitcher
 import kotlin.math.roundToInt
@@ -48,7 +48,6 @@ import kotlin.math.roundToInt
 fun PrintScreen(viewModel: PrintViewModel) {
     val ui by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    var confirmCancel by remember { mutableStateOf(false) }
     KeepScreenOn(
         enabled = ui.keepScreenOn && ui.printStatus.state in setOf("printing", "paused"),
     )
@@ -96,7 +95,8 @@ fun PrintScreen(viewModel: PrintViewModel) {
                 status = ui.printStatus,
                 onPause = viewModel::pausePrint,
                 onResume = viewModel::resumePrint,
-                onRequestCancel = { confirmCancel = true },
+                onCancelPrint = viewModel::cancelPrint,
+                onEmergencyStop = viewModel::emergencyStop,
             )
 
             Button(
@@ -134,33 +134,6 @@ fun PrintScreen(viewModel: PrintViewModel) {
         }
     }
 
-    if (confirmCancel) {
-        AlertDialog(
-            onDismissRequest = { confirmCancel = false },
-            title = { Text("Cancel print?") },
-            text = {
-                Text(
-                    "This will abort the current job on the printer. " +
-                        "Only continue if you really mean to stop it.",
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        confirmCancel = false
-                        viewModel.cancelPrint()
-                    },
-                ) {
-                    Text("Yes, cancel print", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmCancel = false }) {
-                    Text("Keep printing")
-                }
-            },
-        )
-    }
 }
 
 @Composable
@@ -168,8 +141,11 @@ private fun PrintStatusCard(
     status: PrintStatus,
     onPause: () -> Unit,
     onResume: () -> Unit,
-    onRequestCancel: () -> Unit,
+    onCancelPrint: () -> Unit,
+    onEmergencyStop: () -> Unit,
 ) {
+    var confirmCancel by remember { mutableStateOf(false) }
+    var confirmEstop by remember { mutableStateOf(false) }
     val progress = status.progress.coerceIn(0f, 1f)
     val posX = status.liveX ?: status.gcodeX
     val posY = status.liveY ?: status.gcodeY
@@ -270,7 +246,7 @@ private fun PrintStatusCard(
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text("Pause print") }
                     OutlinedButton(
-                        onClick = onRequestCancel,
+                        onClick = { confirmCancel = true },
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text("Cancel print…") }
                 }
@@ -280,12 +256,36 @@ private fun PrintStatusCard(
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text("Resume print") }
                     OutlinedButton(
-                        onClick = onRequestCancel,
+                        onClick = { confirmCancel = true },
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text("Cancel print…") }
                 }
             }
+            OutlinedButton(
+                onClick = { confirmEstop = true },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Emergency stop", color = MaterialTheme.colorScheme.error)
+            }
         }
+    }
+    if (confirmCancel) {
+        ConfirmCancelPrintDialog(
+            onDismiss = { confirmCancel = false },
+            onConfirm = {
+                confirmCancel = false
+                onCancelPrint()
+            },
+        )
+    }
+    if (confirmEstop) {
+        ConfirmEmergencyStopDialog(
+            onDismiss = { confirmEstop = false },
+            onConfirm = {
+                confirmEstop = false
+                onEmergencyStop()
+            },
+        )
     }
 }
 

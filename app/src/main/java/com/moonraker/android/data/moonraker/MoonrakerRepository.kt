@@ -36,9 +36,15 @@ class MoonrakerRepository(
         .map { status -> parseHeaters(status) }
         .stateIn(scope, SharingStarted.Eagerly, emptyList())
 
+    val fans: StateFlow<List<FanReading>> = webSocket.status
+        .map { status -> parseFans(status) }
+        .stateIn(scope, SharingStarted.Eagerly, emptyList())
+
     val printStatus: StateFlow<PrintStatus> = webSocket.status
         .map { status -> parsePrintStatus(status) }
         .stateIn(scope, SharingStarted.Eagerly, PrintStatus())
+
+    val gcodeResponses = webSocket.events
 
     init {
         scope.launch {
@@ -79,14 +85,78 @@ class MoonrakerRepository(
 
     suspend fun runGcode(printer: PrinterConfig, script: String) = api.runGcode(printer, script)
 
+    suspend fun setFanSpeed(printer: PrinterConfig, objectName: String, speed: Float): Result<Unit> {
+        val clamped = speed.coerceIn(0f, 1f)
+        val fanName = objectName.substringAfter(' ', missingDelimiterValue = objectName)
+        val script = "SET_FAN_SPEED FAN=$fanName SPEED=${"%.3f".format(clamped)}"
+        return api.runGcode(printer, script)
+    }
+
     suspend fun temperatureStore(printer: PrinterConfig) = api.temperatureStore(printer)
 
     suspend fun listTimelapses(printer: PrinterConfig) = api.listTimelapses(printer)
 
+    suspend fun listGcodeFiles(printer: PrinterConfig) = api.listGcodeFiles(printer)
+
+    suspend fun gcodeMetadata(printer: PrinterConfig, filename: String) =
+        api.gcodeMetadata(printer, filename)
+
+    suspend fun downloadGcodePreview(printer: PrinterConfig, filename: String) =
+        api.downloadGcodePreview(printer, filename)
+
+    suspend fun startPrint(printer: PrinterConfig, filename: String) =
+        api.startPrint(printer, filename)
+
     fun fileDownloadUrl(printer: PrinterConfig, relativePath: String) =
         api.fileDownloadUrl(printer, relativePath)
 
+    fun thumbnailUrl(printer: PrinterConfig, gcodePath: String, relativeThumb: String) =
+        api.thumbnailUrl(printer, gcodePath, relativeThumb)
+
+    fun firmwareConfigUrl(printer: PrinterConfig) = api.firmwareConfigUrl(printer)
+
     fun resolveUrl(printer: PrinterConfig, pathOrUrl: String) = api.resolveUrl(printer, pathOrUrl)
+
+    private fun parseFans(status: JsonObject): List<FanReading> {
+        val readings = mutableListOf<FanReading>()
+        status.forEach { (name, value) ->
+            val obj = value as? JsonObject ?: return@forEach
+            val kind = when {
+                name == "fan" -> FanKind.PART_COOLING
+                name.startsWith("fan_generic") -> FanKind.GENERIC
+                name.startsWith("controller_fan") -> FanKind.CONTROLLER
+                name.startsWith("heater_fan") -> FanKind.HEATER
+                name.startsWith("temperature_fan") -> FanKind.TEMPERATURE
+                else -> return@forEach
+            }
+            val speed = obj.floatOrNull("speed") ?: return@forEach
+            val rpm = obj.floatOrNull("rpm")
+            readings += FanReading(
+                objectName = name,
+                displayName = when (kind) {
+                    FanKind.PART_COOLING -> "Part cooling"
+                    else -> name.substringAfter(' ', missingDelimiterValue = name)
+                },
+                speed = speed.coerceIn(0f, 1f),
+                rpm = rpm?.takeIf { it > 0f },
+                controllable = kind == FanKind.PART_COOLING ||
+                    kind == FanKind.GENERIC ||
+                    kind == FanKind.CONTROLLER,
+                kind = kind,
+            )
+        }
+        return readings.sortedWith(
+            compareBy<FanReading> {
+                when (it.kind) {
+                    FanKind.PART_COOLING -> 0
+                    FanKind.GENERIC -> 1
+                    FanKind.CONTROLLER -> 2
+                    FanKind.TEMPERATURE -> 3
+                    FanKind.HEATER -> 4
+                }
+            }.thenBy { it.displayName.lowercase() },
+        )
+    }
 
     private fun parseHeaters(status: JsonObject): List<HeaterReading> {
         val readings = mutableListOf<HeaterReading>()

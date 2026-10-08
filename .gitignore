@@ -11,3 +11,12 @@
 *.apk
 *.ap_
 *.aab
+*.keystore
+*.jks
+keystore.properties
+/tmp_logo/
+.kotlin/
+*.log
+*.hprof
+.DS_Store
+Thumbs.db

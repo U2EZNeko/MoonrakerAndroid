@@ -8,11 +8,16 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Thermostat
+import androidx.compose.material.icons.filled.Toys
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.ViewInAr
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -33,8 +38,18 @@ import androidx.navigation.compose.rememberNavController
 import com.moonraker.android.data.settings.AppTabs
 import com.moonraker.android.ui.cameras.CamerasScreen
 import com.moonraker.android.ui.cameras.CamerasViewModel
+import com.moonraker.android.ui.console.ConsoleScreen
+import com.moonraker.android.ui.console.ConsoleViewModel
 import com.moonraker.android.ui.dashboard.DashboardScreen
 import com.moonraker.android.ui.dashboard.DashboardViewModel
+import com.moonraker.android.ui.fans.FansScreen
+import com.moonraker.android.ui.fans.FansViewModel
+import com.moonraker.android.ui.firmware.FirmwareScreen
+import com.moonraker.android.ui.firmware.FirmwareViewModel
+import com.moonraker.android.ui.gcode.GcodeScreen
+import com.moonraker.android.ui.gcode.GcodeViewModel
+import com.moonraker.android.ui.more.MoreScreen
+import com.moonraker.android.ui.more.MoreViewModel
 import com.moonraker.android.ui.print.PrintScreen
 import com.moonraker.android.ui.print.PrintViewModel
 import com.moonraker.android.ui.settings.SettingsScreen
@@ -62,6 +77,7 @@ class MainActivity : ComponentActivity() {
                 MoonrakerRoot(
                     app = app,
                     tabOrder = settings.tabOrder,
+                    bottomTabs = settings.bottomTabs,
                 )
             }
         }
@@ -76,32 +92,44 @@ private val allTabs = mapOf(
     AppTabs.TEMPS to Tab(AppTabs.TEMPS, "Temps", Icons.Default.Thermostat),
     AppTabs.PRINT to Tab(AppTabs.PRINT, "Print", Icons.Default.Print),
     AppTabs.TIMELAPSE to Tab(AppTabs.TIMELAPSE, "Lapse", Icons.Default.Movie),
+    AppTabs.GCODE to Tab(AppTabs.GCODE, "G-code", Icons.Default.ViewInAr),
+    AppTabs.FANS to Tab(AppTabs.FANS, "Fans", Icons.Default.Toys),
+    AppTabs.CONSOLE to Tab(AppTabs.CONSOLE, "Console", Icons.Default.Terminal),
+    AppTabs.FIRMWARE to Tab(AppTabs.FIRMWARE, "Firmware", Icons.Default.Memory),
     AppTabs.SETTINGS to Tab(AppTabs.SETTINGS, "Settings", Icons.Default.Settings),
+    AppTabs.MORE to Tab(AppTabs.MORE, "More", Icons.Default.MoreHoriz),
 )
 
 @Composable
 private fun MoonrakerRoot(
     app: MoonrakerApp,
     tabOrder: List<String>,
+    bottomTabs: List<String>,
 ) {
     val navController = rememberNavController()
-    val tabs = remember(tabOrder) {
-        AppTabs.normalize(tabOrder).mapNotNull { allTabs[it] }
+    val ordered = remember(tabOrder) { AppTabs.normalize(tabOrder) }
+    val visibleSet = remember(bottomTabs) { AppTabs.normalizeBottomTabs(bottomTabs).toSet() }
+    val barTabs = remember(ordered, visibleSet) {
+        ordered.filter { it in visibleSet }.mapNotNull { allTabs[it] } +
+            listOfNotNull(allTabs[AppTabs.MORE])
     }
-    val startDestination = tabs.firstOrNull()?.route ?: AppTabs.DASHBOARD
+    val startDestination = ordered.firstOrNull { it in visibleSet } ?: AppTabs.MORE
     val backStack by navController.currentBackStackEntryAsState()
     val current = backStack?.destination?.route
+    val barRoutes = remember(barTabs) { barTabs.map { it.route }.toSet() }
+    val selectedBarRoute = when {
+        current == null -> barTabs.firstOrNull()?.route
+        current in barRoutes -> current
+        else -> AppTabs.MORE
+    }
 
-    // Child screens own TopAppBars (status-bar insets). Outer scaffold only
-    // reserves space for the bottom nav — applying status-bar padding here too
-    // left an empty gap above every title.
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
             NavigationBar {
-                tabs.forEach { tab ->
+                barTabs.forEach { tab ->
                     NavigationBarItem(
-                        selected = current == tab.route,
+                        selected = selectedBarRoute == tab.route,
                         onClick = {
                             navController.navigate(tab.route) {
                                 popUpTo(navController.graph.findStartDestination().id) {
@@ -153,11 +181,49 @@ private fun MoonrakerRoot(
                 )
                 TimelapseScreen(vm)
             }
+            composable(AppTabs.GCODE) {
+                val vm: GcodeViewModel = viewModel(
+                    factory = GcodeViewModel.factory(app.settingsRepository, app.moonrakerRepository),
+                )
+                GcodeScreen(vm)
+            }
+            composable(AppTabs.FANS) {
+                val vm: FansViewModel = viewModel(
+                    factory = FansViewModel.factory(app.settingsRepository, app.moonrakerRepository),
+                )
+                FansScreen(vm)
+            }
+            composable(AppTabs.CONSOLE) {
+                val vm: ConsoleViewModel = viewModel(
+                    factory = ConsoleViewModel.factory(app.settingsRepository, app.moonrakerRepository),
+                )
+                ConsoleScreen(vm)
+            }
+            composable(AppTabs.FIRMWARE) {
+                val vm: FirmwareViewModel = viewModel(
+                    factory = FirmwareViewModel.factory(app.settingsRepository, app.moonrakerRepository),
+                )
+                FirmwareScreen(vm)
+            }
             composable(AppTabs.SETTINGS) {
                 val vm: SettingsViewModel = viewModel(
                     factory = SettingsViewModel.factory(app.settingsRepository, app.moonrakerRepository),
                 )
                 SettingsScreen(vm)
+            }
+            composable(AppTabs.MORE) {
+                val vm: MoreViewModel = viewModel(
+                    factory = MoreViewModel.factory(app.settingsRepository),
+                )
+                MoreScreen(
+                    viewModel = vm,
+                    onOpenTab = { route ->
+                        navController.navigate(route) {
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
+                )
             }
         }
     }

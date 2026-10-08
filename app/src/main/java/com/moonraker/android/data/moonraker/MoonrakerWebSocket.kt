@@ -116,7 +116,11 @@ class MoonrakerWebSocket(
                                 name == "heater_bed" ||
                                 name.startsWith("heater_generic") ||
                                 name.startsWith("temperature_sensor") ||
-                                name.startsWith("temperature_fan")
+                                name.startsWith("temperature_fan") ||
+                                name == "fan" ||
+                                name.startsWith("fan_generic") ||
+                                name.startsWith("heater_fan") ||
+                                name.startsWith("controller_fan")
                         }.ifEmpty { defaultObjects().keys.toList() }
                         val payload = buildJsonObject {
                             interesting.forEach { put(it, JsonNull) }
@@ -157,6 +161,7 @@ class MoonrakerWebSocket(
         put("heater_bed", JsonNull)
         put("extruder", JsonNull)
         put("extruder1", JsonNull)
+        put("fan", JsonNull)
     }
 
     private fun requestObjectList(webSocket: WebSocket) {

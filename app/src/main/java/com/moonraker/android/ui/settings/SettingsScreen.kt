@@ -325,14 +325,14 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text("Tab order", style = MaterialTheme.typography.titleMedium)
                     Text(
-                        text = "First tab opens on launch. Reorder with the arrows.",
+                        text = "First visible tab opens on launch. Hide tabs from the bottom bar in More.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     ui.tabOrder.forEachIndexed { index, route ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = tabLabel(route),
+                                text = AppTabs.label(route),
                                 modifier = Modifier.weight(1f),
                                 style = MaterialTheme.typography.bodyLarge,
                             )
@@ -440,16 +440,6 @@ private fun SettingsToggle(
         }
         Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
-}
-
-private fun tabLabel(route: String): String = when (route) {
-    AppTabs.DASHBOARD -> "Home"
-    AppTabs.CAMERAS -> "Cameras"
-    AppTabs.TEMPS -> "Temps"
-    AppTabs.PRINT -> "Print"
-    AppTabs.TIMELAPSE -> "Timelapse"
-    AppTabs.SETTINGS -> "Settings"
-    else -> route
 }
 
 @Composable

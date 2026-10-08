@@ -28,6 +28,7 @@ class SettingsRepository(private val context: Context) {
     private val dynamicColorKey = booleanPreferencesKey("use_dynamic_color")
     private val widgetsKey = stringPreferencesKey("widget_bindings_json")
     private val tabOrderKey = stringPreferencesKey("tab_order_json")
+    private val bottomTabsKey = stringPreferencesKey("bottom_tabs_json")
     private val dashboardWidgetsKey = stringPreferencesKey("dashboard_widgets_json")
     private val dashboardCameraKey = stringPreferencesKey("dashboard_camera_key")
     private val cameraOrderKey = stringPreferencesKey("camera_order_json")
@@ -47,6 +48,9 @@ class SettingsRepository(private val context: Context) {
         val tabOrder = prefs[tabOrderKey]?.let {
             runCatching { json.decodeFromString<List<String>>(it) }.getOrDefault(AppTabs.defaultOrder)
         } ?: AppTabs.defaultOrder
+        val bottomTabs = prefs[bottomTabsKey]?.let {
+            runCatching { json.decodeFromString<List<String>>(it) }.getOrDefault(AppTabs.defaultBottomTabs)
+        } ?: AppTabs.defaultBottomTabs
         val dashboardWidgets = prefs[dashboardWidgetsKey]?.let {
             runCatching { json.decodeFromString<List<String>>(it) }.getOrDefault(DashboardWidgets.defaultOrder)
         } ?: DashboardWidgets.defaultOrder
@@ -63,6 +67,7 @@ class SettingsRepository(private val context: Context) {
             useDynamicColor = prefs[dynamicColorKey] ?: false,
             widgetBindings = widgets,
             tabOrder = AppTabs.normalize(tabOrder),
+            bottomTabs = AppTabs.normalizeBottomTabs(bottomTabs),
             dashboardWidgets = DashboardWidgets.normalizeEnabled(dashboardWidgets),
             dashboardCameraKey = prefs[dashboardCameraKey].orEmpty(),
             cameraOrderByPrinter = cameraOrder,
@@ -133,6 +138,12 @@ class SettingsRepository(private val context: Context) {
     suspend fun setTabOrder(order: List<String>) {
         context.dataStore.edit { prefs ->
             prefs[tabOrderKey] = json.encodeToString(AppTabs.normalize(order))
+        }
+    }
+
+    suspend fun setBottomTabs(tabs: List<String>) {
+        context.dataStore.edit { prefs ->
+            prefs[bottomTabsKey] = json.encodeToString(AppTabs.normalizeBottomTabs(tabs))
         }
     }
 

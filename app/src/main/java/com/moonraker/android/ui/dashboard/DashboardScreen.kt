@@ -12,16 +12,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -34,9 +29,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
@@ -65,6 +58,8 @@ import com.moonraker.android.data.settings.orderKey
 import com.moonraker.android.data.settings.toDisplayTemp
 import com.moonraker.android.ui.camera.CameraPlayer
 import com.moonraker.android.ui.common.AppBarTitle
+import com.moonraker.android.ui.common.ConfirmCancelPrintDialog
+import com.moonraker.android.ui.common.ConfirmEmergencyStopDialog
 import com.moonraker.android.ui.common.EmptyState
 import com.moonraker.android.ui.common.PrinterSwitcher
 import kotlin.math.roundToInt
@@ -73,9 +68,6 @@ import kotlin.math.roundToInt
 @Composable
 fun DashboardScreen(viewModel: DashboardViewModel) {
     val ui by viewModel.uiState.collectAsStateWithLifecycle()
-    var editing by remember { mutableStateOf(false) }
-    var confirmCancel by remember { mutableStateOf(false) }
-    var confirmEstop by remember { mutableStateOf(false) }
 
     val printBusy = ui.printStatus.state in setOf("printing", "paused")
     KeepScreenOn(enabled = ui.keepScreenOn && (printBusy || ui.widgets.contains(DashboardWidgets.CAMERA)))
@@ -100,10 +92,6 @@ fun DashboardScreen(viewModel: DashboardViewModel) {
                         enabled = !ui.refreshing && ui.activePrinter != null,
                     ) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")
-                    }
-                    TextButton(onClick = { editing = !editing }) {
-                        Icon(Icons.Default.Edit, contentDescription = null)
-                        Text(if (editing) "Done" else "Edit")
                     }
                     PrinterSwitcher(
                         printers = ui.printers,
@@ -135,68 +123,10 @@ fun DashboardScreen(viewModel: DashboardViewModel) {
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-            if (editing) {
-                item {
-                    Text("Dashboard widgets", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        text = "Toggle widgets on/off and reorder with the arrows.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                items(ui.availableWidgets, key = { it }) { id ->
-                    val enabled = id in ui.widgets
-                    val index = ui.widgets.indexOf(id)
-                    Surface(
-                        tonalElevation = 1.dp,
-                        shape = MaterialTheme.shapes.medium,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = DashboardWidgets.label(id),
-                                    style = MaterialTheme.typography.titleSmall,
-                                )
-                            }
-                            if (enabled && index >= 0) {
-                                IconButton(
-                                    onClick = { viewModel.moveWidget(index, -1) },
-                                    enabled = index > 0,
-                                ) {
-                                    Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Move up")
-                                }
-                                IconButton(
-                                    onClick = { viewModel.moveWidget(index, 1) },
-                                    enabled = index < ui.widgets.lastIndex,
-                                ) {
-                                    Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Move down")
-                                }
-                            }
-                            Switch(
-                                checked = enabled,
-                                onCheckedChange = { viewModel.setWidgetEnabled(id, it) },
-                            )
-                        }
-                    }
-                }
-                if (DashboardWidgets.CAMERA in ui.widgets && ui.webcams.isNotEmpty()) {
-                    item {
-                        Text("Dashboard camera", style = MaterialTheme.typography.titleSmall)
-                        CameraPicker(
-                            cameras = ui.webcams,
-                            selectedKey = ui.selectedCamera?.orderKey().orEmpty(),
-                            onSelect = viewModel::setDashboardCamera,
-                        )
-                    }
-                }
-            } else if (ui.widgets.isEmpty()) {
+            if (ui.widgets.isEmpty()) {
                 item {
                     EmptyState(
-                        message = "No widgets enabled. Tap Edit to add Print progress, Camera, or Controls.",
+                        message = "No widgets enabled. Configure them in Settings → Layout.",
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(200.dp),
@@ -209,7 +139,7 @@ fun DashboardScreen(viewModel: DashboardViewModel) {
                             status = ui.printStatus,
                             onPause = viewModel::pausePrint,
                             onResume = viewModel::resumePrint,
-                            onRequestCancel = { confirmCancel = true },
+                            onCancelPrint = viewModel::cancelPrint,
                         )
                         DashboardWidgets.CAMERA -> key(ui.cameraEpoch, ui.selectedCamera?.orderKey()) {
                             CameraWidgetCard(
@@ -228,8 +158,8 @@ fun DashboardScreen(viewModel: DashboardViewModel) {
                             status = ui.printStatus,
                             onPause = viewModel::pausePrint,
                             onResume = viewModel::resumePrint,
-                            onRequestCancel = { confirmCancel = true },
-                            onRequestEstop = { confirmEstop = true },
+                            onCancelPrint = viewModel::cancelPrint,
+                            onEmergencyStop = viewModel::emergencyStop,
                             onSpeed = viewModel::setSpeedPercent,
                             onFlow = viewModel::setFlowPercent,
                         )
@@ -256,52 +186,6 @@ fun DashboardScreen(viewModel: DashboardViewModel) {
             }
         }
     }
-
-    if (confirmCancel) {
-        AlertDialog(
-            onDismissRequest = { confirmCancel = false },
-            title = { Text("Cancel print?") },
-            text = {
-                Text("This will abort the current job on the printer.")
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        confirmCancel = false
-                        viewModel.cancelPrint()
-                    },
-                ) {
-                    Text("Yes, cancel print", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmCancel = false }) { Text("Keep printing") }
-            },
-        )
-    }
-
-    if (confirmEstop) {
-        AlertDialog(
-            onDismissRequest = { confirmEstop = false },
-            title = { Text("Emergency stop?") },
-            text = {
-                Text("This immediately stops the printer motors and heaters. Only use in an emergency.")
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        confirmEstop = false
-                        viewModel.emergencyStop()
-                    },
-                ) {
-                    Text("E-STOP", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmEstop = false }) { Text("Cancel") }
-            },
-        )
-    }
 }
 
 @Composable
@@ -309,8 +193,9 @@ private fun PrintProgressWidget(
     status: PrintStatus,
     onPause: () -> Unit,
     onResume: () -> Unit,
-    onRequestCancel: () -> Unit,
+    onCancelPrint: () -> Unit,
 ) {
+    var confirmCancel by remember { mutableStateOf(false) }
     val progress = status.progress.coerceIn(0f, 1f)
     DashboardCard(title = "Print progress") {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -344,7 +229,10 @@ private fun PrintProgressWidget(
             "printing" -> {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = onPause, modifier = Modifier.weight(1f)) { Text("Pause") }
-                    OutlinedButton(onClick = onRequestCancel, modifier = Modifier.weight(1f)) {
+                    OutlinedButton(
+                        onClick = { confirmCancel = true },
+                        modifier = Modifier.weight(1f),
+                    ) {
                         Text("Cancel…")
                     }
                 }
@@ -352,12 +240,24 @@ private fun PrintProgressWidget(
             "paused" -> {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = onResume, modifier = Modifier.weight(1f)) { Text("Resume") }
-                    OutlinedButton(onClick = onRequestCancel, modifier = Modifier.weight(1f)) {
+                    OutlinedButton(
+                        onClick = { confirmCancel = true },
+                        modifier = Modifier.weight(1f),
+                    ) {
                         Text("Cancel…")
                     }
                 }
             }
         }
+    }
+    if (confirmCancel) {
+        ConfirmCancelPrintDialog(
+            onDismiss = { confirmCancel = false },
+            onConfirm = {
+                confirmCancel = false
+                onCancelPrint()
+            },
+        )
     }
 }
 
@@ -430,11 +330,13 @@ private fun ControlWidget(
     status: PrintStatus,
     onPause: () -> Unit,
     onResume: () -> Unit,
-    onRequestCancel: () -> Unit,
-    onRequestEstop: () -> Unit,
+    onCancelPrint: () -> Unit,
+    onEmergencyStop: () -> Unit,
     onSpeed: (Int) -> Unit,
     onFlow: (Int) -> Unit,
 ) {
+    var confirmCancel by remember { mutableStateOf(false) }
+    var confirmEstop by remember { mutableStateOf(false) }
     var speed by remember(status.speedFactor) {
         mutableFloatStateOf((status.speedFactor * 100f).coerceIn(1f, 200f))
     }
@@ -452,13 +354,13 @@ private fun ControlWidget(
                 }
             }
             OutlinedButton(
-                onClick = onRequestCancel,
+                onClick = { confirmCancel = true },
                 enabled = status.state in setOf("printing", "paused"),
                 modifier = Modifier.weight(1f),
             ) { Text("Cancel…") }
         }
         OutlinedButton(
-            onClick = onRequestEstop,
+            onClick = { confirmEstop = true },
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text("Emergency stop", color = MaterialTheme.colorScheme.error)
@@ -476,6 +378,24 @@ private fun ControlWidget(
             onValueChange = { flow = it },
             valueRange = 10f..200f,
             onValueChangeFinished = { onFlow(flow.roundToInt()) },
+        )
+    }
+    if (confirmCancel) {
+        ConfirmCancelPrintDialog(
+            onDismiss = { confirmCancel = false },
+            onConfirm = {
+                confirmCancel = false
+                onCancelPrint()
+            },
+        )
+    }
+    if (confirmEstop) {
+        ConfirmEmergencyStopDialog(
+            onDismiss = { confirmEstop = false },
+            onConfirm = {
+                confirmEstop = false
+                onEmergencyStop()
+            },
         )
     }
 }
