@@ -4,7 +4,11 @@ import com.moonraker.android.data.settings.PrinterConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
@@ -326,6 +330,63 @@ class MoonrakerApiClient(
 
     fun firmwareConfigUrl(printer: PrinterConfig): String =
         "${printer.mediaBaseUrl.trimEnd('/')}/firmware-config/"
+
+    suspend fun queryPrintJob(printer: PrinterConfig): Result<PrintJobSnapshot> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val request = Request.Builder()
+                    .url(
+                        "${printer.baseUrl}/printer/objects/query" +
+                            "?print_stats&virtual_sdcard&display_status",
+                    )
+                    .withApiKey(printer)
+                    .get()
+                    .build()
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) error("HTTP ${response.code}")
+                    val body = response.body?.string().orEmpty()
+                    val root = json.decodeFromString(JsonObject.serializer(), body)
+                    val status = (root["result"] as? JsonObject)?.get("status") as? JsonObject
+                        ?: error("Missing status")
+                    val stats = status["print_stats"] as? JsonObject
+                    val display = status["display_status"] as? JsonObject
+                    val sd = status["virtual_sdcard"] as? JsonObject
+                    fun JsonObject?.floatField(key: String): Float? =
+                        this?.get(key)?.jsonPrimitive?.contentOrNull?.toFloatOrNull()
+                    fun JsonObject?.stringField(key: String): String? =
+                        this?.get(key)?.jsonPrimitive?.contentOrNull
+                    val displayProgress = display.floatField("progress")
+                    val sdProgress = sd.floatField("progress")
+                    val progress = when {
+                        displayProgress != null && displayProgress > 0f -> displayProgress
+                        sdProgress != null -> sdProgress
+                        else -> displayProgress ?: 0f
+                    }
+                    PrintJobSnapshot(
+                        filename = stats.stringField("filename").orEmpty(),
+                        state = stats.stringField("state") ?: "standby",
+                        progress = progress.coerceIn(0f, 1f),
+                    )
+                }
+            }
+        }
+
+    suspend fun downloadThumbnailBytes(
+        printer: PrinterConfig,
+        url: String,
+    ): Result<ByteArray> = withContext(Dispatchers.IO) {
+        runCatching {
+            val request = Request.Builder()
+                .url(url)
+                .withApiKey(printer)
+                .get()
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) error("HTTP ${response.code}")
+                response.body?.bytes() ?: error("Empty image")
+            }
+        }
+    }
 }
 
 private val gcodeExtensions = setOf("gcode", "gco", "g", "nc")
@@ -334,18 +395,33 @@ private fun parseGcodePath(stream: java.io.InputStream, maxSegments: Int): Gcode
     val segments = ArrayList<GcodePathSegment>(minOf(maxSegments, 4096))
     var x = 0f
     var y = 0f
+    var z = 0f
     var e = 0f
+    var feedMmPerMin = 3000f
     var absolute = true
     var absoluteE = true
+    var layer = 0
+    var lastExtrudeZ: Float? = null
+    var timeSec = 0f
     var minX = Float.POSITIVE_INFINITY
     var maxX = Float.NEGATIVE_INFINITY
     var minY = Float.POSITIVE_INFINITY
     var maxY = Float.NEGATIVE_INFINITY
     var hasPoint = false
+    var maxLayer = 0
 
     stream.bufferedReader().useLines { lines ->
         for (raw in lines) {
             if (segments.size >= maxSegments) break
+
+            val comment = raw.substringAfter(';', missingDelimiterValue = "").trim()
+            if (comment.isNotEmpty()) {
+                parseLayerComment(comment)?.let { commentedLayer ->
+                    layer = commentedLayer.coerceAtLeast(0)
+                    maxLayer = maxOf(maxLayer, layer)
+                }
+            }
+
             val line = raw.substringBefore(';').trim()
             if (line.isEmpty()) continue
             val upper = line.uppercase()
@@ -358,13 +434,16 @@ private fun parseGcodePath(stream: java.io.InputStream, maxSegments: Int): Gcode
                     parseAxis(upper, 'E')?.let { e = it }
                     parseAxis(upper, 'X')?.let { x = it }
                     parseAxis(upper, 'Y')?.let { y = it }
+                    parseAxis(upper, 'Z')?.let { z = it }
                 }
                 upper.startsWith("G0") || upper.startsWith("G1") ||
                     upper.startsWith("G00") || upper.startsWith("G01") -> {
+                    parseAxis(upper, 'F')?.let { feedMmPerMin = it.coerceAtLeast(1f) }
                     val nx = parseAxis(upper, 'X')
                     val ny = parseAxis(upper, 'Y')
+                    val nz = parseAxis(upper, 'Z')
                     val ne = parseAxis(upper, 'E')
-                    if (nx == null && ny == null) {
+                    if (nx == null && ny == null && nz == null) {
                         if (ne != null) e = if (absoluteE) ne else e + ne
                         continue
                     }
@@ -378,14 +457,43 @@ private fun parseGcodePath(stream: java.io.InputStream, maxSegments: Int): Gcode
                         absolute -> ny
                         else -> y + ny
                     }
+                    val z1 = when {
+                        nz == null -> z
+                        absolute -> nz
+                        else -> z + nz
+                    }
                     val e1 = when {
                         ne == null -> e
                         absoluteE -> ne
                         else -> e + ne
                     }
                     val extruding = e1 > e + 1e-4f
+                    if (extruding) {
+                        val prevZ = lastExtrudeZ
+                        if (prevZ != null && z1 > prevZ + 0.01f) {
+                            layer += 1
+                            maxLayer = maxOf(maxLayer, layer)
+                        } else if (prevZ == null) {
+                            maxLayer = maxOf(maxLayer, layer)
+                        }
+                        lastExtrudeZ = z1
+                    }
+                    val dist = kotlin.math.hypot((x1 - x).toDouble(), (y1 - y).toDouble()).toFloat()
+                    val dz = kotlin.math.abs(z1 - z)
+                    val moveLen = kotlin.math.hypot(dist.toDouble(), dz.toDouble()).toFloat()
+                    if (moveLen > 1e-6f) {
+                        timeSec += moveLen / (feedMmPerMin / 60f)
+                    }
                     if (x1 != x || y1 != y) {
-                        segments += GcodePathSegment(x, y, x1, y1, extruding)
+                        segments += GcodePathSegment(
+                            x0 = x,
+                            y0 = y,
+                            x1 = x1,
+                            y1 = y1,
+                            extruding = extruding,
+                            layer = layer,
+                            timeSec = timeSec,
+                        )
                         if (!hasPoint) {
                             minX = minOf(x, x1)
                             maxX = maxOf(x, x1)
@@ -401,6 +509,7 @@ private fun parseGcodePath(stream: java.io.InputStream, maxSegments: Int): Gcode
                     }
                     x = x1
                     y = y1
+                    z = z1
                     e = e1
                 }
             }
@@ -416,7 +525,22 @@ private fun parseGcodePath(stream: java.io.InputStream, maxSegments: Int): Gcode
         maxX = maxX,
         minY = minY,
         maxY = maxY,
+        maxLayer = maxLayer,
+        totalTimeSec = timeSec,
     )
+}
+
+/** Parses `;LAYER:12` / `; layer 12`. `;LAYER_CHANGE` is handled via Z rises. */
+private fun parseLayerComment(comment: String): Int? {
+    val trimmed = comment.trim()
+    val upper = trimmed.uppercase()
+    return when {
+        upper.startsWith("LAYER:") ->
+            trimmed.substringAfter(':').trim().substringBefore(' ').toIntOrNull()
+        upper.startsWith("LAYER ") ->
+            trimmed.substringAfter(' ').trim().substringBefore(' ').toIntOrNull()
+        else -> null
+    }
 }
 
 private fun parseAxis(line: String, axis: Char): Float? {

@@ -120,7 +120,13 @@ class MoonrakerWebSocket(
                                 name == "fan" ||
                                 name.startsWith("fan_generic") ||
                                 name.startsWith("heater_fan") ||
-                                name.startsWith("controller_fan")
+                                name.startsWith("controller_fan") ||
+                                name.startsWith("neopixel") ||
+                                name.startsWith("dotstar") ||
+                                name.startsWith("led ") ||
+                                name == "led" ||
+                                name.startsWith("pca9533") ||
+                                name.startsWith("pca9632")
                         }.ifEmpty { defaultObjects().keys.toList() }
                         val payload = buildJsonObject {
                             interesting.forEach { put(it, JsonNull) }

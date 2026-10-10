@@ -1,5 +1,6 @@
 package com.moonraker.android
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -24,6 +25,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -59,12 +61,14 @@ import com.moonraker.android.ui.temps.TempsViewModel
 import com.moonraker.android.ui.theme.MoonrakerTheme
 import com.moonraker.android.ui.timelapse.TimelapseScreen
 import com.moonraker.android.ui.timelapse.TimelapseViewModel
+import com.moonraker.android.widget.EXTRA_OPEN_GCODE
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val app = application as MoonrakerApp
+        val openGcode = intent?.getBooleanExtra(EXTRA_OPEN_GCODE, false) == true
         setContent {
             val settings by app.settingsRepository.settings.collectAsStateWithLifecycle(
                 initialValue = com.moonraker.android.data.settings.AppSettings(),
@@ -78,9 +82,16 @@ class MainActivity : ComponentActivity() {
                     app = app,
                     tabOrder = settings.tabOrder,
                     bottomTabs = settings.bottomTabs,
+                    loadCurrentGcodeOnStart = settings.loadCurrentGcodeOnStart,
+                    openGcodeFromIntent = openGcode,
                 )
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
     }
 }
 
@@ -105,6 +116,8 @@ private fun MoonrakerRoot(
     app: MoonrakerApp,
     tabOrder: List<String>,
     bottomTabs: List<String>,
+    loadCurrentGcodeOnStart: Boolean,
+    openGcodeFromIntent: Boolean,
 ) {
     val navController = rememberNavController()
     val ordered = remember(tabOrder) { AppTabs.normalize(tabOrder) }
@@ -113,7 +126,10 @@ private fun MoonrakerRoot(
         ordered.filter { it in visibleSet }.mapNotNull { allTabs[it] } +
             listOfNotNull(allTabs[AppTabs.MORE])
     }
-    val startDestination = ordered.firstOrNull { it in visibleSet } ?: AppTabs.MORE
+    val startDestination = when {
+        openGcodeFromIntent || loadCurrentGcodeOnStart -> AppTabs.GCODE
+        else -> ordered.firstOrNull { it in visibleSet } ?: AppTabs.MORE
+    }
     val backStack by navController.currentBackStackEntryAsState()
     val current = backStack?.destination?.route
     val barRoutes = remember(barTabs) { barTabs.map { it.route }.toSet() }
@@ -121,6 +137,14 @@ private fun MoonrakerRoot(
         current == null -> barTabs.firstOrNull()?.route
         current in barRoutes -> current
         else -> AppTabs.MORE
+    }
+
+    LaunchedEffect(openGcodeFromIntent) {
+        if (!openGcodeFromIntent) return@LaunchedEffect
+        navController.navigate(AppTabs.GCODE) {
+            launchSingleTop = true
+            restoreState = true
+        }
     }
 
     Scaffold(

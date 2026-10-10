@@ -16,16 +16,19 @@ The popular Moonraker app on Google Play locks camera streaming behind payments.
 
 - Multi-printer support with per-printer API keys
 - Live cameras (MJPEG, snapshots, WebRTC where available) — **no paywall**
-- Home dashboard with reorderable widgets
+- Home dashboard as a **6-column grid** — add / move / resize widgets (cameras, toolheads, fans, …)
 - Temperatures (live + history charts)
 - Print upload / pause / resume / cancel / emergency stop
 - Timelapse browser + download
-- G-code file list, slicer thumbnails, and toolpath preview
+- **G-code preview & live view** — file list, slicer thumbnails, toolpath canvas with live nozzle marker, **layer + time scrubbers** (Fluidd-style)
+- Dashboard **G-code preview** card (same scrubbers)
+- Home-screen **G-code preview widget** (current job thumbnail + progress)
+- Optional **load current G-code on app start** (Settings → Behavior)
 - Fan control
 - G-code console
 - Paxx12 / Snapmaker U1 firmware-config WebView
 - Themes, accents, Material You, C/F temperature units
-- Hide tabs into **More...** / reorder the bottom bar
+- Hide tabs into **More…** / reorder the bottom bar
 - Home-screen camera snapshot widget
 
 ## Requirements
@@ -41,14 +44,14 @@ The popular Moonraker app on Google Play locks camera streaming behind payments.
 ./gradlew assembleDebug
 # -> app/build/outputs/apk/debug/app-debug.apk
 
-# Release APK (unsigned unless you configure signing)
+# Release APK
 ./gradlew assembleRelease
-# -> app/build/outputs/apk/release/app-release-unsigned.apk
+# -> app/build/outputs/apk/release/app-release.apk  (or -unsigned if no keystore)
 ```
 
 On Windows use `gradlew.bat`. Set `ANDROID_HOME` (or install Android Studio) so the Android SDK is available.
 
-### Optional release signing
+### Release signing (optional)
 
 Create `keystore.properties` in the project root (gitignored):
 
@@ -59,7 +62,7 @@ keyAlias=...
 keyPassword=...
 ```
 
-Then wire it into `app/build.gradle.kts` `signingConfigs` / `release` as usual.
+If the file is present, `assembleRelease` signs automatically.
 
 ## Install
 
@@ -68,6 +71,7 @@ Sideload the APK, or install from a GitHub release when published. Prefer F-Droi
 1. Add your printer host (and port, usually `7125`)
 2. Optional: Moonraker API key, media port for webcams behind nginx
 3. Open **Cameras** — they should just work
+4. Optional: enable **Load current G-code on start** in Settings; add the **G-code preview** home-screen widget
 
 ## Privacy
 

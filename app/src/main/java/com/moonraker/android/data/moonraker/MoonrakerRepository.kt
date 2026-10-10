@@ -40,6 +40,10 @@ class MoonrakerRepository(
         .map { status -> parseFans(status) }
         .stateIn(scope, SharingStarted.Eagerly, emptyList())
 
+    val leds: StateFlow<List<LedReading>> = webSocket.status
+        .map { status -> parseLeds(status) }
+        .stateIn(scope, SharingStarted.Eagerly, emptyList())
+
     val printStatus: StateFlow<PrintStatus> = webSocket.status
         .map { status -> parsePrintStatus(status) }
         .stateIn(scope, SharingStarted.Eagerly, PrintStatus())
@@ -92,6 +96,32 @@ class MoonrakerRepository(
         return api.runGcode(printer, script)
     }
 
+    suspend fun setLedColor(
+        printer: PrinterConfig,
+        objectName: String,
+        red: Float,
+        green: Float,
+        blue: Float,
+        white: Float = 0f,
+    ): Result<Unit> {
+        val ledName = objectName.substringAfter(' ', missingDelimiterValue = objectName)
+        val script = buildString {
+            append("SET_LED LED=$ledName")
+            append(" RED=${"%.3f".format(red.coerceIn(0f, 1f))}")
+            append(" GREEN=${"%.3f".format(green.coerceIn(0f, 1f))}")
+            append(" BLUE=${"%.3f".format(blue.coerceIn(0f, 1f))}")
+            append(" WHITE=${"%.3f".format(white.coerceIn(0f, 1f))}")
+            append(" TRANSMIT=1")
+        }
+        return api.runGcode(printer, script)
+    }
+
+    /** Simple on/off for chamber/status LEDs (full white when on). */
+    suspend fun setLedOn(printer: PrinterConfig, objectName: String, on: Boolean): Result<Unit> {
+        val v = if (on) 1f else 0f
+        return setLedColor(printer, objectName, red = v, green = v, blue = v, white = v)
+    }
+
     suspend fun temperatureStore(printer: PrinterConfig) = api.temperatureStore(printer)
 
     suspend fun listTimelapses(printer: PrinterConfig) = api.listTimelapses(printer)
@@ -106,6 +136,11 @@ class MoonrakerRepository(
 
     suspend fun startPrint(printer: PrinterConfig, filename: String) =
         api.startPrint(printer, filename)
+
+    suspend fun queryPrintJob(printer: PrinterConfig) = api.queryPrintJob(printer)
+
+    suspend fun downloadThumbnailBytes(printer: PrinterConfig, url: String) =
+        api.downloadThumbnailBytes(printer, url)
 
     fun fileDownloadUrl(printer: PrinterConfig, relativePath: String) =
         api.fileDownloadUrl(printer, relativePath)
@@ -156,6 +191,50 @@ class MoonrakerRepository(
                 }
             }.thenBy { it.displayName.lowercase() },
         )
+    }
+
+    private fun parseLeds(status: JsonObject): List<LedReading> {
+        val readings = mutableListOf<LedReading>()
+        status.forEach { (name, value) ->
+            val obj = value as? JsonObject ?: return@forEach
+            val isLed = name.startsWith("neopixel") ||
+                name.startsWith("dotstar") ||
+                name.startsWith("led ") ||
+                name == "led" ||
+                name.startsWith("pca9533") ||
+                name.startsWith("pca9632")
+            if (!isLed) return@forEach
+            val (r, g, b, w) = parseLedColor(obj) ?: return@forEach
+            readings += LedReading(
+                objectName = name,
+                displayName = name.substringAfter(' ', missingDelimiterValue = name),
+                red = r,
+                green = g,
+                blue = b,
+                white = w,
+            )
+        }
+        return readings.sortedBy { it.displayName.lowercase() }
+    }
+
+    private fun parseLedColor(obj: JsonObject): FloatArray? {
+        val colorData = obj["color_data"] as? JsonArray ?: return floatArrayOf(0f, 0f, 0f, 0f)
+        val first = colorData.firstOrNull() ?: return floatArrayOf(0f, 0f, 0f, 0f)
+        return when (first) {
+            is JsonArray -> floatArrayOf(
+                first.getOrNull(0)?.jsonPrimitive?.contentOrNull?.toFloatOrNull() ?: 0f,
+                first.getOrNull(1)?.jsonPrimitive?.contentOrNull?.toFloatOrNull() ?: 0f,
+                first.getOrNull(2)?.jsonPrimitive?.contentOrNull?.toFloatOrNull() ?: 0f,
+                first.getOrNull(3)?.jsonPrimitive?.contentOrNull?.toFloatOrNull() ?: 0f,
+            )
+            is JsonObject -> floatArrayOf(
+                first.floatOrNull("R") ?: first.floatOrNull("r") ?: 0f,
+                first.floatOrNull("G") ?: first.floatOrNull("g") ?: 0f,
+                first.floatOrNull("B") ?: first.floatOrNull("b") ?: 0f,
+                first.floatOrNull("W") ?: first.floatOrNull("w") ?: 0f,
+            )
+            else -> floatArrayOf(0f, 0f, 0f, 0f)
+        }
     }
 
     private fun parseHeaters(status: JsonObject): List<HeaterReading> {

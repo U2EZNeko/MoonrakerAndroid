@@ -36,6 +36,7 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
@@ -58,7 +59,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.moonraker.android.data.settings.AppTabs
-import com.moonraker.android.data.settings.DashboardWidgets
 import com.moonraker.android.data.settings.PrinterConfig
 import com.moonraker.android.data.settings.TempUnit
 import com.moonraker.android.data.settings.ThemeMode
@@ -98,7 +98,7 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
-            contentPadding = PaddingValues(16.dp),
+            contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             item { Text("Printers", style = MaterialTheme.typography.titleLarge) }
@@ -168,6 +168,25 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                             MaterialTheme.colorScheme.primary
                         },
                     )
+                }
+            }
+
+            item { Text("Dashboard", style = MaterialTheme.typography.titleLarge) }
+            item {
+                SettingsCard {
+                    Text(
+                        text = "Home uses a 6-column grid. On the Home tab, tap the pencil to add, " +
+                            "move, resize, and remove widgets (cameras, toolheads, fans, …).",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = viewModel::resetDashboardLayout,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Reset dashboard layout")
+                    }
                 }
             }
 
@@ -281,48 +300,18 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                         checked = ui.keepScreenOnPrint,
                         onCheckedChange = viewModel::setKeepScreenOnPrint,
                     )
+                    SettingsToggle(
+                        title = "Load current G-code on start",
+                        subtitle = "Open the G-code tab and live-preview the active job when the app launches",
+                        checked = ui.loadCurrentGcodeOnStart,
+                        onCheckedChange = viewModel::setLoadCurrentGcodeOnStart,
+                    )
                 }
             }
 
             item { Text("Layout", style = MaterialTheme.typography.titleLarge) }
             item {
                 SettingsCard {
-                    Text("Dashboard widgets", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        text = "Choose what appears on Home and in what order.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    DashboardWidgets.all.forEach { id ->
-                        val enabled = id in ui.dashboardWidgets
-                        val index = ui.dashboardWidgets.indexOf(id)
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = DashboardWidgets.label(id),
-                                modifier = Modifier.weight(1f),
-                                style = MaterialTheme.typography.bodyLarge,
-                            )
-                            if (enabled && index >= 0) {
-                                IconButton(
-                                    onClick = { viewModel.moveDashboardWidget(index, -1) },
-                                    enabled = index > 0,
-                                ) {
-                                    Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Move up")
-                                }
-                                IconButton(
-                                    onClick = { viewModel.moveDashboardWidget(index, 1) },
-                                    enabled = index < ui.dashboardWidgets.lastIndex,
-                                ) {
-                                    Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Move down")
-                                }
-                            }
-                            Switch(
-                                checked = enabled,
-                                onCheckedChange = { viewModel.setDashboardWidgetEnabled(id, it) },
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
                     Text("Tab order", style = MaterialTheme.typography.titleMedium)
                     Text(
                         text = "First visible tab opens on launch. Hide tabs from the bottom bar in More.",

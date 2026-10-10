@@ -19,6 +19,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:theme="@style/Theme.MoonrakerAndroid"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
@@ -48,6 +49,19 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/camera_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.GcodePreviewWidgetReceiver"
+            android:exported="true"
+            android:label="@string/gcode_widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="com.moonraker.android.widget.ACTION_GCODE_REFRESH" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/gcode_widget_info" />
         </receiver>
     </application>
 </manifest>

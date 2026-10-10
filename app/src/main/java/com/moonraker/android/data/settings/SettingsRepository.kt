@@ -30,6 +30,7 @@ class SettingsRepository(private val context: Context) {
     private val tabOrderKey = stringPreferencesKey("tab_order_json")
     private val bottomTabsKey = stringPreferencesKey("bottom_tabs_json")
     private val dashboardWidgetsKey = stringPreferencesKey("dashboard_widgets_json")
+    private val dashboardLayoutKey = stringPreferencesKey("dashboard_layout_json")
     private val dashboardCameraKey = stringPreferencesKey("dashboard_camera_key")
     private val cameraOrderKey = stringPreferencesKey("camera_order_json")
     private val streamFpsKey = intPreferencesKey("stream_fps")
@@ -37,6 +38,7 @@ class SettingsRepository(private val context: Context) {
     private val tempUnitKey = stringPreferencesKey("temp_unit")
     private val keepScreenCamerasKey = booleanPreferencesKey("keep_screen_on_cameras")
     private val keepScreenPrintKey = booleanPreferencesKey("keep_screen_on_print")
+    private val loadCurrentGcodeOnStartKey = booleanPreferencesKey("load_current_gcode_on_start")
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { prefs ->
         val printers = prefs[printersKey]?.let {
@@ -51,9 +53,15 @@ class SettingsRepository(private val context: Context) {
         val bottomTabs = prefs[bottomTabsKey]?.let {
             runCatching { json.decodeFromString<List<String>>(it) }.getOrDefault(AppTabs.defaultBottomTabs)
         } ?: AppTabs.defaultBottomTabs
-        val dashboardWidgets = prefs[dashboardWidgetsKey]?.let {
-            runCatching { json.decodeFromString<List<String>>(it) }.getOrDefault(DashboardWidgets.defaultOrder)
-        } ?: DashboardWidgets.defaultOrder
+        val cameraKey = prefs[dashboardCameraKey].orEmpty()
+        val dashboardLayout = prefs[dashboardLayoutKey]?.let {
+            runCatching { json.decodeFromString<List<DashboardTile>>(it) }.getOrNull()
+        }?.let { DashboardGrid.normalize(it) }
+            ?: prefs[dashboardWidgetsKey]?.let { legacy ->
+                runCatching { json.decodeFromString<List<String>>(legacy) }.getOrNull()
+                    ?.let { DashboardGrid.fromLegacyTypes(it, cameraKey) }
+            }
+            ?: DashboardGrid.defaultLayout
         val cameraOrder = prefs[cameraOrderKey]?.let {
             runCatching { json.decodeFromString<Map<String, List<String>>>(it) }.getOrDefault(emptyMap())
         } ?: emptyMap()
@@ -68,8 +76,7 @@ class SettingsRepository(private val context: Context) {
             widgetBindings = widgets,
             tabOrder = AppTabs.normalize(tabOrder),
             bottomTabs = AppTabs.normalizeBottomTabs(bottomTabs),
-            dashboardWidgets = DashboardWidgets.normalizeEnabled(dashboardWidgets),
-            dashboardCameraKey = prefs[dashboardCameraKey].orEmpty(),
+            dashboardLayout = dashboardLayout,
             cameraOrderByPrinter = cameraOrder,
             streamFps = (prefs[streamFpsKey] ?: 30).coerceIn(1, 30),
             preferSnapshotStreams = prefs[preferSnapshotKey] ?: false,
@@ -78,6 +85,7 @@ class SettingsRepository(private val context: Context) {
             } ?: TempUnit.CELSIUS,
             keepScreenOnCameras = prefs[keepScreenCamerasKey] ?: true,
             keepScreenOnPrint = prefs[keepScreenPrintKey] ?: true,
+            loadCurrentGcodeOnStart = prefs[loadCurrentGcodeOnStartKey] ?: false,
         )
     }
 
@@ -147,17 +155,14 @@ class SettingsRepository(private val context: Context) {
         }
     }
 
-    suspend fun setDashboardWidgets(order: List<String>) {
+    suspend fun setDashboardLayout(tiles: List<DashboardTile>) {
         context.dataStore.edit { prefs ->
-            prefs[dashboardWidgetsKey] =
-                json.encodeToString(DashboardWidgets.normalizeEnabled(order))
+            prefs[dashboardLayoutKey] = json.encodeToString(DashboardGrid.normalize(tiles))
         }
     }
 
-    suspend fun setDashboardCameraKey(key: String) {
-        context.dataStore.edit { prefs ->
-            prefs[dashboardCameraKey] = key
-        }
+    suspend fun resetDashboardLayout() {
+        setDashboardLayout(DashboardGrid.defaultLayout)
     }
 
     suspend fun setCameraOrder(printerId: String, orderedKeys: List<String>) {
@@ -196,6 +201,12 @@ class SettingsRepository(private val context: Context) {
     suspend fun setKeepScreenOnPrint(enabled: Boolean) {
         context.dataStore.edit { prefs ->
             prefs[keepScreenPrintKey] = enabled
+        }
+    }
+
+    suspend fun setLoadCurrentGcodeOnStart(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[loadCurrentGcodeOnStartKey] = enabled
         }
     }
 

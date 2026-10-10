@@ -5,7 +5,6 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.moonraker.android.data.moonraker.MoonrakerRepository
 import com.moonraker.android.data.settings.AppTabs
-import com.moonraker.android.data.settings.DashboardWidgets
 import com.moonraker.android.data.settings.PrinterConfig
 import com.moonraker.android.data.settings.SettingsRepository
 import com.moonraker.android.data.settings.TempUnit
@@ -25,12 +24,12 @@ data class SettingsUiState(
     val accentArgb: Long = 0xFFFF6B4E,
     val useDynamicColor: Boolean = false,
     val tabOrder: List<String> = AppTabs.defaultOrder,
-    val dashboardWidgets: List<String> = DashboardWidgets.defaultOrder,
     val streamFps: Int = 30,
     val preferSnapshotStreams: Boolean = false,
     val tempUnit: TempUnit = TempUnit.CELSIUS,
     val keepScreenOnCameras: Boolean = true,
     val keepScreenOnPrint: Boolean = true,
+    val loadCurrentGcodeOnStart: Boolean = false,
     val testMessage: String? = null,
     val testIsError: Boolean = false,
 )
@@ -54,12 +53,12 @@ class SettingsViewModel(
             accentArgb = settings.accentColorArgb,
             useDynamicColor = settings.useDynamicColor,
             tabOrder = settings.tabOrder,
-            dashboardWidgets = settings.dashboardWidgets,
             streamFps = settings.streamFps,
             preferSnapshotStreams = settings.preferSnapshotStreams,
             tempUnit = settings.tempUnit,
             keepScreenOnCameras = settings.keepScreenOnCameras,
             keepScreenOnPrint = settings.keepScreenOnPrint,
+            loadCurrentGcodeOnStart = settings.loadCurrentGcodeOnStart,
             testMessage = msg,
             testIsError = err,
         )
@@ -100,25 +99,8 @@ class SettingsViewModel(
         }
     }
 
-    fun setDashboardWidgetEnabled(id: String, enabled: Boolean) {
-        val current = uiState.value.dashboardWidgets
-        val next = if (enabled) {
-            if (id in current) current else current + id
-        } else {
-            current.filterNot { it == id }
-        }
-        viewModelScope.launch {
-            settingsRepository.setDashboardWidgets(DashboardWidgets.normalizeEnabled(next))
-        }
-    }
-
-    fun moveDashboardWidget(index: Int, delta: Int) {
-        val order = uiState.value.dashboardWidgets
-        val to = index + delta
-        if (index !in order.indices || to !in order.indices) return
-        viewModelScope.launch {
-            settingsRepository.setDashboardWidgets(order.moveItem(index, to))
-        }
+    fun resetDashboardLayout() {
+        viewModelScope.launch { settingsRepository.resetDashboardLayout() }
     }
 
     fun setStreamFps(fps: Int) {
@@ -139,6 +121,10 @@ class SettingsViewModel(
 
     fun setKeepScreenOnPrint(enabled: Boolean) {
         viewModelScope.launch { settingsRepository.setKeepScreenOnPrint(enabled) }
+    }
+
+    fun setLoadCurrentGcodeOnStart(enabled: Boolean) {
+        viewModelScope.launch { settingsRepository.setLoadCurrentGcodeOnStart(enabled) }
     }
 
     fun testPrinter(printer: PrinterConfig) {

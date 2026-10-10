@@ -88,6 +88,18 @@ data class FanReading(
     val kind: FanKind,
 )
 
+data class LedReading(
+    val objectName: String,
+    val displayName: String,
+    val red: Float,
+    val green: Float,
+    val blue: Float,
+    val white: Float = 0f,
+) {
+    val brightness: Float get() = maxOf(red, green, blue, white)
+    val isOn: Boolean get() = brightness > 0.01f
+}
+
 enum class FanKind {
     PART_COOLING,
     GENERIC,
@@ -109,6 +121,12 @@ enum class ConsoleLineKind {
     ERROR,
     INFO,
 }
+
+data class PrintJobSnapshot(
+    val filename: String = "",
+    val state: String = "standby",
+    val progress: Float = 0f,
+)
 
 data class PrintStatus(
     val filename: String = "",
@@ -245,9 +263,14 @@ data class GcodePathPreview(
     val maxX: Float = 0f,
     val minY: Float = 0f,
     val maxY: Float = 0f,
+    /** Highest layer index present (0-based). */
+    val maxLayer: Int = 0,
+    /** Estimated cumulative print time at the last segment (seconds). */
+    val totalTimeSec: Float = 0f,
 ) {
     val width: Float get() = (maxX - minX).coerceAtLeast(1f)
     val height: Float get() = (maxY - minY).coerceAtLeast(1f)
+    val layerCount: Int get() = maxLayer + 1
 }
 
 data class GcodePathSegment(
@@ -256,4 +279,8 @@ data class GcodePathSegment(
     val x1: Float,
     val y1: Float,
     val extruding: Boolean,
+    /** 0-based layer index for this move. */
+    val layer: Int = 0,
+    /** Cumulative estimated time (seconds) at the end of this segment. */
+    val timeSec: Float = 0f,
 )

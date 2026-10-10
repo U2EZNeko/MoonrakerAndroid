@@ -1,13 +1,11 @@
 package com.moonraker.android.ui.gcode
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -25,6 +23,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -33,16 +32,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
 import com.moonraker.android.data.moonraker.GcodeFileEntry
 import com.moonraker.android.data.moonraker.GcodeMetadata
 import com.moonraker.android.data.moonraker.GcodePathPreview
@@ -51,7 +44,7 @@ import com.moonraker.android.ui.common.EmptyState
 import com.moonraker.android.ui.common.PrinterSwitcher
 import java.text.DateFormat
 import java.util.Date
-import kotlin.math.min
+import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -65,10 +58,10 @@ fun GcodeScreen(viewModel: GcodeViewModel) {
             TopAppBar(
                 title = {
                     AppBarTitle(
-                        title = if (selected == null) {
-                            "G-code"
-                        } else {
-                            selected.substringAfterLast('/')
+                        title = when {
+                            selected == null -> "G-code"
+                            ui.isLivePreview -> "Live · ${selected.substringAfterLast('/')}"
+                            else -> selected.substringAfterLast('/')
                         },
                     )
                 },
@@ -117,11 +110,6 @@ fun GcodeScreen(viewModel: GcodeViewModel) {
                 modifier = Modifier.padding(padding),
             )
 
-            ui.files.isEmpty() -> EmptyState(
-                message = ui.message ?: "No G-code files on printer",
-                modifier = Modifier.padding(padding),
-            )
-
             else -> {
                 LazyColumn(
                     modifier = Modifier
@@ -130,8 +118,35 @@ fun GcodeScreen(viewModel: GcodeViewModel) {
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    items(ui.files, key = { it.path }) { file ->
-                        FileRow(file = file, onClick = { viewModel.selectFile(file.path) })
+                    if (ui.currentJobFilename.isNotBlank() &&
+                        ui.currentJobState in setOf("printing", "paused")
+                    ) {
+                        item {
+                            CurrentJobCard(
+                                filename = ui.currentJobFilename,
+                                state = ui.currentJobState,
+                                progress = ui.currentJobProgress,
+                                onOpen = viewModel::openCurrentJob,
+                            )
+                        }
+                    }
+
+                    if (ui.files.isEmpty()) {
+                        item {
+                            Text(
+                                text = ui.message ?: "No G-code files on printer",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    } else {
+                        items(ui.files, key = { it.path }) { file ->
+                            FileRow(
+                                file = file,
+                                isCurrent = file.path == ui.currentJobFilename,
+                                onClick = { viewModel.selectFile(file.path) },
+                            )
+                        }
                     }
                 }
             }
@@ -140,9 +155,52 @@ fun GcodeScreen(viewModel: GcodeViewModel) {
 }
 
 @Composable
-private fun FileRow(file: GcodeFileEntry, onClick: () -> Unit) {
+private fun CurrentJobCard(
+    filename: String,
+    state: String,
+    progress: Float,
+    onOpen: () -> Unit,
+) {
     Surface(
-        tonalElevation = 1.dp,
+        tonalElevation = 2.dp,
+        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("Current print", style = MaterialTheme.typography.titleMedium)
+            Text(
+                text = filename,
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = "${state.replaceFirstChar { it.titlecase() }} · ${(progress * 100f).roundToInt()}%",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            LinearProgressIndicator(
+                progress = { progress.coerceIn(0f, 1f) },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Button(onClick = onOpen, modifier = Modifier.fillMaxWidth()) {
+                Text("Open live preview")
+            }
+        }
+    }
+}
+
+@Composable
+private fun FileRow(
+    file: GcodeFileEntry,
+    isCurrent: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        tonalElevation = if (isCurrent) 3.dp else 1.dp,
         shape = MaterialTheme.shapes.medium,
         modifier = Modifier
             .fillMaxWidth()
@@ -154,10 +212,16 @@ private fun FileRow(file: GcodeFileEntry, onClick: () -> Unit) {
                 style = MaterialTheme.typography.titleSmall,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
+                fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "${formatSize(file.size)} · ${formatDate(file.modified)}",
+                text = buildString {
+                    append(formatSize(file.size))
+                    append(" · ")
+                    append(formatDate(file.modified))
+                    if (isCurrent) append(" · printing")
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -171,7 +235,6 @@ private fun PreviewPane(
     padding: PaddingValues,
     onStart: () -> Unit,
 ) {
-    val apiKey = ui.activePrinter?.apiKey.orEmpty()
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -185,11 +248,53 @@ private fun PreviewPane(
             }
         }
 
+        if (ui.isLivePreview) {
+            item {
+                Surface(
+                    tonalElevation = 1.dp,
+                    shape = MaterialTheme.shapes.medium,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            text = "Live toolpath",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        Text(
+                            text = "${ui.currentJobState.replaceFirstChar { it.titlecase() }} · " +
+                                "${(ui.currentJobProgress * 100f).roundToInt()}%",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        LinearProgressIndicator(
+                            progress = { ui.currentJobProgress.coerceIn(0f, 1f) },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        val x = ui.liveX
+                        val y = ui.liveY
+                        if (x != null && y != null) {
+                            Text(
+                                text = "Nozzle  X %.2f  Y %.2f".format(x, y),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
         item {
-            ThumbnailOrPath(
-                thumbnailUrl = ui.thumbnailUrl,
+            ToolpathCard(
                 pathPreview = ui.pathPreview,
-                apiKey = apiKey,
+                liveX = if (ui.isLivePreview) ui.liveX else null,
+                liveY = if (ui.isLivePreview) ui.liveY else null,
+                liveLayer = if (ui.isLivePreview) ui.liveLayer else null,
+                liveProgress = if (ui.isLivePreview) ui.currentJobProgress else null,
+                followLive = ui.isLivePreview,
             )
         }
 
@@ -197,14 +302,26 @@ private fun PreviewPane(
             item { MetadataCard(meta) }
         }
 
-        item {
-            Button(
-                onClick = onStart,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Icon(Icons.Default.PlayArrow, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Start print")
+        if (!ui.isLivePreview) {
+            item {
+                Button(
+                    onClick = onStart,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Default.PlayArrow, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Start print")
+                }
+            }
+        } else {
+            item {
+                OutlinedButton(
+                    onClick = {},
+                    enabled = false,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Live preview of active job")
+                }
             }
         }
 
@@ -221,10 +338,13 @@ private fun PreviewPane(
 }
 
 @Composable
-private fun ThumbnailOrPath(
-    thumbnailUrl: String?,
+private fun ToolpathCard(
     pathPreview: GcodePathPreview?,
-    apiKey: String,
+    liveX: Float?,
+    liveY: Float?,
+    liveLayer: Int?,
+    liveProgress: Float?,
+    followLive: Boolean,
 ) {
     Surface(
         tonalElevation = 1.dp,
@@ -232,73 +352,24 @@ private fun ThumbnailOrPath(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            if (thumbnailUrl != null) {
-                val request = ImageRequest.Builder(LocalContext.current)
-                    .data(thumbnailUrl)
-                    .apply {
-                        if (apiKey.isNotBlank()) addHeader("X-Api-Key", apiKey)
-                    }
-                    .crossfade(true)
-                    .build()
-                AsyncImage(
-                    model = request,
-                    contentDescription = "Slicer thumbnail",
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(1f),
-                )
-            }
             if (pathPreview != null && pathPreview.segments.isNotEmpty()) {
-                Text("Toolpath (top view)", style = MaterialTheme.typography.titleSmall)
-                PathCanvas(
+                Text("Toolpath", style = MaterialTheme.typography.titleSmall)
+                GcodePreviewViewer(
                     preview = pathPreview,
-                    travelColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
-                    extrudeColor = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(1f),
+                    liveX = liveX,
+                    liveY = liveY,
+                    liveLayer = liveLayer,
+                    liveProgress = liveProgress,
+                    followLive = followLive,
                 )
-            } else if (thumbnailUrl == null) {
+            } else {
                 Text(
-                    text = "No thumbnail or toolpath available for this file.",
+                    text = "No toolpath available for this file.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(8.dp),
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun PathCanvas(
-    preview: GcodePathPreview,
-    travelColor: Color,
-    extrudeColor: Color,
-    modifier: Modifier = Modifier,
-) {
-    Canvas(modifier = modifier) {
-        val pad = 12.dp.toPx()
-        val availW = size.width - pad * 2
-        val availH = size.height - pad * 2
-        val scale = min(availW / preview.width, availH / preview.height)
-        val drawW = preview.width * scale
-        val drawH = preview.height * scale
-        val originX = pad + (availW - drawW) / 2f
-        val originY = pad + (availH - drawH) / 2f
-
-        fun mapX(x: Float) = originX + (x - preview.minX) * scale
-        fun mapY(y: Float) = originY + drawH - (y - preview.minY) * scale
-
-        for (seg in preview.segments) {
-            drawLine(
-                color = if (seg.extruding) extrudeColor else travelColor,
-                start = Offset(mapX(seg.x0), mapY(seg.y0)),
-                end = Offset(mapX(seg.x1), mapY(seg.y1)),
-                strokeWidth = if (seg.extruding) 2.5f else 1.2f,
-                cap = StrokeCap.Round,
-            )
         }
     }
 }

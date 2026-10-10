@@ -3,6 +3,7 @@ package com.moonraker.android.ui.camera
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
@@ -29,6 +30,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -39,6 +41,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
+import com.moonraker.android.R
 import com.moonraker.android.data.moonraker.WebcamEntry
 import com.moonraker.android.data.settings.PrinterConfig
 import kotlinx.coroutines.Dispatchers
@@ -77,7 +80,7 @@ fun CameraPlayer(
     TransformedCameraBox(
         webcam = webcam,
         applyGraphicsTransform = !useSurfacePlayer || preferSnapshot,
-        modifier = modifier,
+        modifier = modifier.clipToBounds(),
     ) {
         val kind = webcam.serviceKind()
         val forceSnapshot = preferSnapshot && snapshot.isNotBlank() &&
@@ -356,6 +359,7 @@ private fun WebRtcLivePlayer(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                 )
                 setBackgroundColor(android.graphics.Color.BLACK)
+                setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
                 settings.mediaPlaybackRequiresUserGesture = false
@@ -393,7 +397,9 @@ private fun WebRtcLivePlayer(
                 webView.loadDataWithBaseURL(baseUrl, html, "text/html", "UTF-8", null)
             }
         },
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .clipToBounds(),
     )
 }
 
@@ -418,7 +424,9 @@ private fun HlsPlayer(url: String) {
     } else {
         AndroidView(
             factory = { ctx ->
-                PlayerView(ctx).apply {
+                val view = LayoutInflater.from(ctx)
+                    .inflate(R.layout.player_texture_view, null, false) as PlayerView
+                view.apply {
                     this.player = player
                     useController = false
                     layoutParams = FrameLayout.LayoutParams(
@@ -427,7 +435,9 @@ private fun HlsPlayer(url: String) {
                     )
                 }
             },
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .clipToBounds(),
         )
     }
 }
@@ -450,6 +460,8 @@ private fun WebStreamPlayer(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                 )
                 setBackgroundColor(android.graphics.Color.BLACK)
+                // Keep WebView in the Compose scroll layer (avoid floating above other tiles).
+                setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
                 settings.mediaPlaybackRequiresUserGesture = false
@@ -496,7 +508,9 @@ private fun WebStreamPlayer(
                 }
             }
         },
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .clipToBounds(),
     )
 }
 
