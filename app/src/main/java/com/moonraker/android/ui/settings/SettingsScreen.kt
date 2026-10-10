@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -33,6 +34,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -54,7 +56,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -363,6 +367,12 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                     )
                 }
             }
+
+            item {
+                HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
+            }
+            item { Text("Solidarity", style = MaterialTheme.typography.titleLarge) }
+            item { UkraineStatement() }
         }
     }
 
@@ -390,6 +400,52 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                 editing = null
             },
         )
+    }
+}
+
+private val UkraineBlue = Color(0xFF0057B7)
+private val UkraineYellow = Color(0xFFFFD700)
+
+@Composable
+private fun UkraineStatement() {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Column(
+            modifier = Modifier
+                .width(8.dp)
+                .height(56.dp)
+                .clip(RoundedCornerShape(4.dp)),
+        ) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .background(UkraineBlue),
+            )
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .background(UkraineYellow),
+            )
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = "The developer of this app stands with Ukraine.",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = "We unequivocally condemn the criminal invasion of Ukraine by " +
+                    "russia and stand in solidarity with the Ukrainian people. " +
+                    "Slava Ukraini.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 

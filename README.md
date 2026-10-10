@@ -31,6 +31,18 @@ The popular Moonraker app on Google Play locks camera streaming behind payments.
 - Hide tabs into **More…** / reorder the bottom bar
 - Home-screen camera snapshot widget
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/Dashboard.jpg" alt="Dashboard with widget grid, LED toggle, and live camera" width="220" />
+  &nbsp;
+  <img src="docs/screenshots/Cams.jpg" alt="Cameras — free multi-camera streams" width="220" />
+  &nbsp;
+  <img src="docs/screenshots/Temps.jpg" alt="Temperatures — history chart and sensors" width="220" />
+  &nbsp;
+  <img src="docs/screenshots/Firmwareconfig.jpg" alt="Paxx12 firmware config" width="220" />
+</p>
+
 ## Requirements
 
 - Android 8.0+ (API 26)
